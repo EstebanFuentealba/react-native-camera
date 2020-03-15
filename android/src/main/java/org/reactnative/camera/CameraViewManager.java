@@ -160,6 +160,10 @@ public class CameraViewManager extends ViewGroupManager<RNCameraView> {
   public void setFaceDetecting(RNCameraView view, boolean faceDetectorEnabled) {
     view.setShouldDetectFaces(faceDetectorEnabled);
   }
+  @ReactProp(name = "mrzDetectorEnabled")
+  public void setMrzDetecting(RNCameraView view, boolean mrzDetectorEnabled) {
+    view.setShouldMRZFaces(mrzDetectorEnabled);
+  }
 
   @ReactProp(name = "faceDetectionMode")
   public void setFaceDetectionMode(RNCameraView view, int mode) {

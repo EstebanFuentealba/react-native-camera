@@ -28,8 +28,12 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import cl.json.mrzdetector.RNMRZDetector;
+import cl.json.mrzdetector.tasks.MRZDetectorAsyncTask;
+import cl.json.mrzdetector.tasks.MRZDetectorAsyncTaskDelegate;
+
 public class RNCameraView extends CameraView implements LifecycleEventListener, BarCodeScannerAsyncTaskDelegate, FaceDetectorAsyncTaskDelegate,
-    BarcodeDetectorAsyncTaskDelegate, TextRecognizerAsyncTaskDelegate, PictureSavedDelegate {
+    BarcodeDetectorAsyncTaskDelegate, TextRecognizerAsyncTaskDelegate, PictureSavedDelegate, MRZDetectorAsyncTaskDelegate {
   private ThemedReactContext mThemedReactContext;
   private Queue<Promise> mPictureTakenPromises = new ConcurrentLinkedQueue<>();
   private Map<Promise, ReadableMap> mPictureTakenOptions = new ConcurrentHashMap<>();
@@ -45,6 +49,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private Boolean mIsRecordingInterrupted = false;
 
   // Concurrency lock for scanners to avoid flooding the runtime
+  public volatile boolean mrzDetectorTaskLock = false;
   public volatile boolean barCodeScannerTaskLock = false;
   public volatile boolean faceDetectorTaskLock = false;
   public volatile boolean googleBarcodeDetectorTaskLock = false;
@@ -54,6 +59,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private MultiFormatReader mMultiFormatReader;
   private RNFaceDetector mFaceDetector;
   private RNBarcodeDetector mGoogleBarcodeDetector;
+  private RNMRZDetector mMRZDetector;
+  private boolean mShouldDetectMRZ = false;
   private boolean mShouldDetectFaces = false;
   private boolean mShouldGoogleDetectBarcodes = false;
   private boolean mShouldScanBarCodes = false;
@@ -150,7 +157,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
         boolean willCallFaceTask = mShouldDetectFaces && !faceDetectorTaskLock && cameraView instanceof FaceDetectorAsyncTaskDelegate;
         boolean willCallGoogleBarcodeTask = mShouldGoogleDetectBarcodes && !googleBarcodeDetectorTaskLock && cameraView instanceof BarcodeDetectorAsyncTaskDelegate;
         boolean willCallTextTask = mShouldRecognizeText && !textRecognizerTaskLock && cameraView instanceof TextRecognizerAsyncTaskDelegate;
-        if (!willCallBarCodeTask && !willCallFaceTask && !willCallGoogleBarcodeTask && !willCallTextTask) {
+        boolean willCallMRZTask = mShouldDetectMRZ && mrzDetectorTaskLock && cameraView instanceof MRZDetectorAsyncTaskDelegate;
+        if (!willCallBarCodeTask && !willCallFaceTask && !willCallGoogleBarcodeTask && !willCallTextTask && !willCallMRZTask) {
           return;
         }
 
@@ -192,6 +200,11 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
           textRecognizerTaskLock = true;
           TextRecognizerAsyncTaskDelegate delegate = (TextRecognizerAsyncTaskDelegate) cameraView;
           new TextRecognizerAsyncTask(delegate, mThemedReactContext, data, width, height, correctRotation, getResources().getDisplayMetrics().density, getFacing(), getWidth(), getHeight(), mPaddingX, mPaddingY).execute();
+        }
+        if(willCallMRZTask) {
+          mrzDetectorTaskLock = true;
+         MRZDetectorAsyncTaskDelegate delegate = (MRZDetectorAsyncTaskDelegate) cameraView;
+          new MRZDetectorAsyncTask(delegate, mMRZDetector, data, width, height, correctRotation, getResources().getDisplayMetrics().density, getFacing(), getWidth(), getHeight(), mPaddingX, mPaddingY).execute();
         }
       }
     });
@@ -376,6 +389,16 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     public void setCameraViewDimensions(int width, int height) {
     this.mCameraViewWidth = width;
     this.mCameraViewHeight = height;
+  }
+
+  private void setupMRZDetector() {
+    mMRZDetector = new RNMRZDetector(mThemedReactContext);
+  }
+  public void setShouldMRZFaces(boolean shouldDetectMRZ) {
+    if (shouldDetectMRZ && mMRZDetector == null) {
+      setupMRZDetector();
+    }
+    this.mShouldDetectMRZ = shouldDetectMRZ;
   }
 
   /**
@@ -578,5 +601,10 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     } else {
       return true;
     }
+  }
+
+  @Override
+  public void onMRZDetected(WritableMap payload) {
+    mrzDetectorTaskLock = false;
   }
 }
