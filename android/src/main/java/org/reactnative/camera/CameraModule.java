@@ -32,6 +32,10 @@ import java.util.SortedSet;
 public class CameraModule extends ReactContextBaseJavaModule {
   private static final String TAG = "CameraModule";
 
+    static {
+        System.loadLibrary("opencv_java4");
+    }
+
   private ScopedContext mScopedContext;
   static final int VIDEO_2160P = 0;
   static final int VIDEO_1080P = 1;

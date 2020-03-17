@@ -2,6 +2,10 @@ package cl.json.mrzdetector;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.ImageFormat;
+import android.graphics.Path;
+import android.graphics.YuvImage;
 import android.util.Log;
 
 import org.opencv.android.Utils;
@@ -18,6 +22,7 @@ import org.opencv.imgproc.Imgproc;
 import org.reactnative.camera.utils.ImageDimensions;
 import org.reactnative.frame.RNFrame;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,115 +31,126 @@ public class RNMRZDetector {
 
     private static final String TAG = RNMRZDetector.class.getSimpleName();
 
-
+    private ImageDimensions mPreviousDimensions;
+    private Context context;
+    private MRZRect mrzRect;
     public RNMRZDetector(Context context) {
+        context = context;
+
     }
 
     // Public API
-    public boolean detect(RNFrame frame) {
+    public MRZRect detect(RNFrame frame, Bitmap bitmap) {
+        mrzRect = null;
+        boolean mrzAreaFound = false;
+
+
         int IMG_HEIGHT = 600;
         double RECTX = IMG_HEIGHT / 46.154;
         double RECTY = IMG_HEIGHT / 120.0;
         double SQLXY = IMG_HEIGHT / 39.0;
 
-        Bitmap bmp32 = frame.getFrame().getBitmap().copy(Bitmap.Config.ARGB_8888, true);
-        Mat in = new Mat();
-        Utils.bitmapToMat(bmp32, in);
+        if(bitmap != null) {
+            Mat in = new Mat();
+            Utils.bitmapToMat(bitmap, in);
 
-        Mat dst = in.clone();
-        Imgproc.cvtColor(dst, dst, Imgproc.COLOR_RGBA2GRAY, 0);
-        Size ksize =  new Size(3, 3);
-        Imgproc.GaussianBlur(dst, dst, ksize, 0, 0);
+            Mat dst = in.clone();
+            Imgproc.cvtColor(dst, dst, Imgproc.COLOR_RGBA2GRAY, 0);
+            Size ksize =  new Size(3, 3);
+            Imgproc.GaussianBlur(dst, dst, ksize, 0, 0);
 
-        Mat rectKernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                new Size(RECTX, RECTY)
-        );
-
-
-        Imgproc.morphologyEx(dst, dst, Imgproc.MORPH_BLACKHAT, rectKernel);
-
-        Imgproc.Sobel(dst, dst, CvType.CV_8UC1, 1, 0,-1, 1, 0, Core.BORDER_DEFAULT);
+            Mat rectKernel = Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT,
+                    new Size(RECTX, RECTY)
+            );
 
 
-        org.opencv.core.Core.convertScaleAbs( dst, dst, 1, 0);
+            Imgproc.morphologyEx(dst, dst, Imgproc.MORPH_BLACKHAT, rectKernel);
+
+            Imgproc.Sobel(dst, dst, CvType.CV_8UC1, 1, 0,-1, 1, 0, Core.BORDER_DEFAULT);
 
 
-        Imgproc.morphologyEx(dst, dst, Imgproc.MORPH_CLOSE, rectKernel);
-        Imgproc.threshold(dst, dst, 0, 255, Imgproc.THRESH_BINARY | Imgproc.THRESH_OTSU);
-
-        Mat sqKernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                new Size(SQLXY, SQLXY)
-        );
+            org.opencv.core.Core.convertScaleAbs( dst, dst, 1, 0);
 
 
-        Imgproc.morphologyEx(dst, dst, Imgproc.MORPH_CLOSE, sqKernel);
-        Mat M = Mat.ones(3, 3, CvType.CV_8U);
-        Imgproc.erode(dst, dst, M, new Point(-1, -1), 4);
+            Imgproc.morphologyEx(dst, dst, Imgproc.MORPH_CLOSE, rectKernel);
+            Imgproc.threshold(dst, dst, 0, 255, Imgproc.THRESH_BINARY | Imgproc.THRESH_OTSU);
 
-        Mat hierarchy = new Mat();
+            Mat sqKernel = Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT,
+                    new Size(SQLXY, SQLXY)
+            );
 
-        List<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(
-                dst,
-                contours,
-                hierarchy,
-                Imgproc.RETR_EXTERNAL,
-                Imgproc.CHAIN_APPROX_SIMPLE
-        );
 
-        boolean mrzAreaFound = false;
+            Imgproc.morphologyEx(dst, dst, Imgproc.MORPH_CLOSE, sqKernel);
+            Mat M = Mat.ones(3, 3, CvType.CV_8U);
+            Imgproc.erode(dst, dst, M, new Point(-1, -1), 4);
 
-        for (int i = 0; i < contours.size(); ++i) {
-            Rect rect = Imgproc.boundingRect(contours.get(i));
+            Mat hierarchy = new Mat();
 
-            int x = rect.x;
-            int y = rect.y;
-            int w = rect.width;
-            int h = rect.height;
+            List<MatOfPoint> contours = new ArrayList<>();
+            Imgproc.findContours(
+                    dst,
+                    contours,
+                    hierarchy,
+                    Imgproc.RETR_EXTERNAL,
+                    Imgproc.CHAIN_APPROX_SIMPLE
+            );
 
-            int ar = rect.width / rect.height;
 
-            if (ar > 5.0) {
-                int pX = (int)Math.floor((x + w) * 0.03);
-                int pY = (int)Math.floor((y + h) * 0.03);
-                x = x - pX;
-                y = y - pY;
-                w = w + pX * 2;
-                h = h + pY * 2;
 
-                if (x < 0) {
-                    x = 0;
-                }
-                if (y < 0) {
-                    y = 0;
-                }
-                if (w < 0) {
-                    w = 0;
-                }
-                if (h < 0) {
-                    h = 0;
-                }
+            for (int i = 0; i < contours.size(); ++i) {
+                Rect rect = Imgproc.boundingRect(contours.get(i));
+
+                int x = rect.x;
+                int y = rect.y;
+                int w = rect.width;
+                int h = rect.height;
+
+                int ar = rect.width / rect.height;
+
+                if (ar > 5.0) {
+                    int pX = (int)Math.floor((x + w) * 0.03);
+                    int pY = (int)Math.floor((y + h) * 0.03);
+                    x = x - pX;
+                    y = y - pY;
+                    w = w + pX * 2;
+                    h = h + pY * 2;
+
+                    if (x < 0) {
+                        x = 0;
+                    }
+                    if (y < 0) {
+                        y = 0;
+                    }
+                    if (w < 0) {
+                        w = 0;
+                    }
+                    if (h < 0) {
+                        h = 0;
+                    }
 
 
                     /*
                     if (ar > 5.0 && crWidth > 0.75) {
 
                     }*/
-                if(w > 340 && h > 60){
+                    if(w > 340 && h > 60){
 
 
-                    try {
-                        Rect roi = new Rect(x, y, w, h);
-                        Mat cropped = new Mat(in, roi);
+                        try {
+                            Rect roi = new Rect(x, y, w, h);
+                            //Mat cropped = new Mat(in, roi);
 
-                        Imgproc.rectangle(in,
-                                new Point(x, y),
-                                new Point(x + w, y+h),
-                                new Scalar(0,255,0),
-                                1);
+                            Imgproc.rectangle(in,
+                                    new Point(x, y),
+                                    new Point(x + w, y+h),
+                                    new Scalar(0,255,0),
+                                    1);
 
+                            mrzRect = new MRZRect(x, y, w, h);
+
+                            Log.d(TAG, "Rect: " + x +" " + y + " " + w + " " + h);
                         /*
                         //  #   <CheckBlurry>
                         Mat destination =  new Mat();
@@ -162,22 +178,24 @@ public class RNMRZDetector {
 
                         }
                         */
-                        //  #   </CheckBlurry>
-                    } catch(Exception ex) {
-                        ex.printStackTrace();
+                            //  #   </CheckBlurry>
+                        } catch(Exception ex) {
+                            ex.printStackTrace();
+                        }
+
+
+
+                        mrzAreaFound = true;
                     }
 
 
 
-                    mrzAreaFound = true;
+                    break;
                 }
-
-
-
-                break;
             }
         }
-        return mrzAreaFound;
+
+        return mrzRect;
     }
 
 }

@@ -14,6 +14,7 @@ import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.uimanager.UIManagerModule;
 import com.google.android.cameraview.CameraView;
 import com.google.zxing.Result;
@@ -23,6 +24,9 @@ import org.reactnative.facedetector.RNFaceDetector;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+
+import cl.json.mrzdetector.MRZRect;
+import cl.json.mrzdetector.events.MrzDetectedEvent;
 
 public class RNCameraViewHelper {
 
@@ -244,7 +248,18 @@ public class RNCameraViewHelper {
       }
      });
   }
+  // MRZ
+  public static void emitMRZDetectedEvent(final ViewGroup view, final MRZRect data) {
 
+    final ReactContext reactContext = (ReactContext) view.getContext();
+    reactContext.runOnNativeModulesQueueThread(new Runnable() {
+      @Override
+      public void run() {
+        MrzDetectedEvent event = MrzDetectedEvent.obtain(view.getId(), data.x, data.y, data.width, data.height);
+        reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
+      }
+    });
+  }
   // Face detection events
 
   public static void emitFacesDetectedEvent(final ViewGroup view, final WritableArray data) {

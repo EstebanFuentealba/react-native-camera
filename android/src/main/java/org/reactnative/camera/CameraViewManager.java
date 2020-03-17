@@ -27,7 +27,8 @@ public class CameraViewManager extends ViewGroupManager<RNCameraView> {
     EVENT_ON_PICTURE_TAKEN("onPictureTaken"),
     EVENT_ON_PICTURE_SAVED("onPictureSaved"),
     EVENT_ON_RECORDING_START("onRecordingStart"),
-    EVENT_ON_RECORDING_END("onRecordingEnd");
+    EVENT_ON_RECORDING_END("onRecordingEnd"),
+    EVENT_ON_MRZ_DETECTED("onMRZDetected");
 
     private final String mName;
 

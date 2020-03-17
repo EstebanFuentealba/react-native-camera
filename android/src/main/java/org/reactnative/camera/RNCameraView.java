@@ -3,7 +3,15 @@ package org.reactnative.camera;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
+import android.graphics.Path;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.YuvImage;
 import android.media.CamcorderProfile;
 import android.media.MediaActionSound;
 import android.os.Build;
@@ -22,15 +30,20 @@ import org.reactnative.camera.tasks.*;
 import org.reactnative.camera.utils.RNFileUtils;
 import org.reactnative.facedetector.RNFaceDetector;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import cl.json.mrzdetector.MRZRect;
 import cl.json.mrzdetector.RNMRZDetector;
 import cl.json.mrzdetector.tasks.MRZDetectorAsyncTask;
 import cl.json.mrzdetector.tasks.MRZDetectorAsyncTaskDelegate;
+
+import org.reactnative.camera.utils.YuvToBitmap;
+
 
 public class RNCameraView extends CameraView implements LifecycleEventListener, BarCodeScannerAsyncTaskDelegate, FaceDetectorAsyncTaskDelegate,
     BarcodeDetectorAsyncTaskDelegate, TextRecognizerAsyncTaskDelegate, PictureSavedDelegate, MRZDetectorAsyncTaskDelegate {
@@ -87,6 +100,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     super(themedReactContext, true);
     mThemedReactContext = themedReactContext;
     themedReactContext.addLifecycleEventListener(this);
+
 
     addCallback(new Callback() {
       @Override
@@ -157,11 +171,16 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
         boolean willCallFaceTask = mShouldDetectFaces && !faceDetectorTaskLock && cameraView instanceof FaceDetectorAsyncTaskDelegate;
         boolean willCallGoogleBarcodeTask = mShouldGoogleDetectBarcodes && !googleBarcodeDetectorTaskLock && cameraView instanceof BarcodeDetectorAsyncTaskDelegate;
         boolean willCallTextTask = mShouldRecognizeText && !textRecognizerTaskLock && cameraView instanceof TextRecognizerAsyncTaskDelegate;
-        boolean willCallMRZTask = mShouldDetectMRZ && mrzDetectorTaskLock && cameraView instanceof MRZDetectorAsyncTaskDelegate;
+        boolean willCallMRZTask = mShouldDetectMRZ && !mrzDetectorTaskLock && cameraView instanceof MRZDetectorAsyncTaskDelegate;
         if (!willCallBarCodeTask && !willCallFaceTask && !willCallGoogleBarcodeTask && !willCallTextTask && !willCallMRZTask) {
           return;
         }
 
+        if(willCallMRZTask) {
+          mrzDetectorTaskLock = true;
+          MRZDetectorAsyncTaskDelegate delegate = (MRZDetectorAsyncTaskDelegate) cameraView;
+          new MRZDetectorAsyncTask(delegate, mThemedReactContext, mMRZDetector, data, width, height, correctRotation, getResources().getDisplayMetrics().density, getFacing(), getWidth(), getHeight(), mPaddingX, mPaddingY).execute();
+        }
         if (data.length < (1.5 * width * height)) {
             return;
         }
@@ -201,13 +220,9 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
           TextRecognizerAsyncTaskDelegate delegate = (TextRecognizerAsyncTaskDelegate) cameraView;
           new TextRecognizerAsyncTask(delegate, mThemedReactContext, data, width, height, correctRotation, getResources().getDisplayMetrics().density, getFacing(), getWidth(), getHeight(), mPaddingX, mPaddingY).execute();
         }
-        if(willCallMRZTask) {
-          mrzDetectorTaskLock = true;
-         MRZDetectorAsyncTaskDelegate delegate = (MRZDetectorAsyncTaskDelegate) cameraView;
-          new MRZDetectorAsyncTask(delegate, mMRZDetector, data, width, height, correctRotation, getResources().getDisplayMetrics().density, getFacing(), getWidth(), getHeight(), mPaddingX, mPaddingY).execute();
-        }
       }
     });
+
   }
 
   @Override
@@ -399,6 +414,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
       setupMRZDetector();
     }
     this.mShouldDetectMRZ = shouldDetectMRZ;
+    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText || mShouldDetectMRZ);
   }
 
   /**
@@ -604,7 +620,12 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   }
 
   @Override
-  public void onMRZDetected(WritableMap payload) {
+  public void onMRZDetected(MRZRect payload) {
+    if (!mShouldDetectMRZ) {
+      return;
+    }
+    if(payload != null)
+    RNCameraViewHelper.emitMRZDetectedEvent(this, payload);
     mrzDetectorTaskLock = false;
   }
 }
